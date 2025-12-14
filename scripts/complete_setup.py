@@ -1,10 +1,5 @@
-"""
-Complete Data Lake Setup Script
-Automates the entire data lake pipeline: Bronze → Silver → HDFS → Gold
-"""
-
 from minio import Minio
-from hdfs import InsecureClient
+import subprocess
 import os
 import sys
 from pathlib import Path
@@ -13,8 +8,6 @@ from pathlib import Path
 MINIO_ENDPOINT = "localhost:9002"
 MINIO_ACCESS_KEY = "minioadmin"
 MINIO_SECRET_KEY = "minioadmin123"
-HDFS_URL = "http://localhost:9870"
-HDFS_USER = "root"
 
 # Data paths
 DATA_DIR = Path("./data")
@@ -38,14 +31,13 @@ class DataLakeManager:
     """Manages the complete data lake pipeline"""
     
     def __init__(self):
-        """Initialize MinIO and HDFS clients"""
+        """Initialize MinIO client"""
         self.minio_client = Minio(
             MINIO_ENDPOINT,
             access_key=MINIO_ACCESS_KEY,
             secret_key=MINIO_SECRET_KEY,
             secure=False
         )
-        self.hdfs_client = InsecureClient(HDFS_URL, user=HDFS_USER)
     
     def upload_to_bronze(self):
         """Upload new raw CSV files to Bronze"""
@@ -119,65 +111,10 @@ class DataLakeManager:
         print(f"\n Uploaded {success_count}/{len(SILVER_FILES)} files to Silver")
         return success_count == len(SILVER_FILES)
     
-    def copy_to_hdfs(self):
-        """Copy cleaned data from Silver to HDFS"""
-        print("\n" + "=" * 60)
-        print("PHASE 3: Copying Silver Data to HDFS")
-        print("=" * 60)
-        
-        # Create HDFS directory structure
-        hdfs_dirs = [
-            "/bigdata/weather",
-            "/bigdata/traffic",
-            "/bigdata/merged"
-        ]
-        
-        for directory in hdfs_dirs:
-            try:
-                if not self.hdfs_client.status(directory, strict=False):
-                    self.hdfs_client.makedirs(directory)
-                    print(f" Created HDFS directory: {directory}")
-            except:
-                try:
-                    self.hdfs_client.makedirs(directory)
-                    print(f" Created HDFS directory: {directory}")
-                except Exception as e:
-                    print(f" Directory already exists or error: {directory}")
-        
-        # Upload weather data
-        print("\n Uploading weather_cleaned.parquet to HDFS...")
-        try:
-            with open(DATA_DIR / "weather_cleaned.parquet", "rb") as f:
-                self.hdfs_client.write("/bigdata/weather/weather_cleaned.parquet", f, overwrite=True)
-            print(" Weather data uploaded to HDFS")
-        except Exception as e:
-            print(f" Error: {e}")
-        
-        # Upload traffic data
-        print("\n Uploading traffic_cleaned.parquet to HDFS...")
-        try:
-            with open(DATA_DIR / "traffic_cleaned.parquet", "rb") as f:
-                self.hdfs_client.write("/bigdata/traffic/traffic_cleaned.parquet", f, overwrite=True)
-            print(" Traffic data uploaded to HDFS")
-        except Exception as e:
-            print(f"Error: {e}")
-        
-        # Upload merged data
-        print("\n Uploading merged_data.parquet to HDFS...")
-        try:
-            with open(DATA_DIR / "merged_data (3).parquet", "rb") as f:
-                self.hdfs_client.write("/bigdata/merged/merged_data.parquet", f, overwrite=True)
-            print(" Merged data uploaded to HDFS")
-        except Exception as e:
-            print(f"Error: {e}")
-        
-        print("\n HDFS integration complete")
-        return True
-    
     def upload_to_gold(self):
         """Upload final results to Gold bucket"""
         print("\n" + "=" * 60)
-        print("PHASE 4: Uploading Results to Gold")
+        print("PHASE 3: Uploading Results to Gold")
         print("=" * 60)
         
         success_count = 0
@@ -213,7 +150,7 @@ class DataLakeManager:
     def verify_setup(self):
         """Verify all buckets and HDFS structure"""
         print("\n" + "=" * 60)
-        print("PHASE 5: Verifying Data Lake Setup")
+        print("PHASE 4: Verifying Data Lake Setup")
         print("=" * 60)
         
         # Verify MinIO buckets
@@ -224,22 +161,30 @@ class DataLakeManager:
                 if objects:
                     for obj in objects:
                         size_mb = obj.size / (1024 * 1024)
-                        print(f"   ✅ {obj.object_name} ({size_mb:.2f} MB)")
+                        print(f" {obj.object_name} ({size_mb:.2f} MB)")
                 else:
                     print("(Empty)")
             except Exception as e:
                 print(f"  Error: {e}")
         
-        # Verify HDFS
-        print("\n📁 HDFS Structure:")
+        # Verify HDFS (using docker exec)
+        print("\n HDFS Structure:")
         try:
-            for path in ["/bigdata/weather", "/bigdata/traffic", "/bigdata/merged"]:
-                files = self.hdfs_client.list(path)
-                print(f"   {path}:")
-                for file in files:
-                    print(f"      ✅ {file}")
+            result = subprocess.run(
+                ["docker", "exec", "hdfs-namenode", "hdfs", "dfs", "-ls", "-R", "/bigdata"],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                for line in lines:
+                    if line.strip():
+                        print(f"   {line}")
+            else:
+                print("   HDFS not yet populated (run upload_to_hdfs.py)")
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"   Error: {e}")
         
         print("\n" + "=" * 60)
         print("Verification Complete!")
@@ -265,14 +210,16 @@ def main():
         if not manager.upload_to_silver():
             print("\n Warning: Some cleaned files failed to upload")
         
-        # Phase 3: Copy to HDFS
-        manager.copy_to_hdfs()
-        
-        # Phase 4: Upload results
+        # Phase 3: Upload results to Gold
         manager.upload_to_gold()
         
-        # Phase 5: Verify everything
+        # Phase 4: Verify everything
         manager.verify_setup()
+        
+        print("\n" + "=" * 60)
+        print("NOTE: To copy data to HDFS, run:")
+        print("      python scripts/upload_to_hdfs.py")
+        print("=" * 60)
         
         print("\n" + "=" * 60)
         print(" DATA LAKE SETUP COMPLETE!")
