@@ -1,0 +1,22 @@
+# Python Requirements for Big Data Project
+# Install with: pip install -r requirements.txt
+
+# MinIO S3 Client
+minio==7.2.0
+
+# HDFS Client
+hdfs==2.7.0
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# Data Processing (for team members)
+pandas==2.1.4
+pyarrow==14.0.1
+numpy==1.26.2
+
+# Optional: For visualization dashboard
+streamlit==1.29.0
+plotly==5.18.0
+matplotlib==3.8.2
+seaborn==0.13.0
