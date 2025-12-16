@@ -15,7 +15,7 @@ pandas==2.1.4
 pyarrow==14.0.1
 numpy==1.26.2
 
-# Optional: For visualization dashboard
+# For visualization dashboard
 streamlit==1.29.0
 plotly==5.18.0
 matplotlib==3.8.2
